@@ -1,0 +1,28 @@
+/*
+ * buzzer.c
+ *
+ *  Created on: Jun 18, 2022
+ *      Author: khaled Atef
+ */
+
+#include "buzzer.h"
+#include "gpio.h"
+
+
+void Alarm_Init (void){
+
+	 GPIO_setupPinDirection(BUZZER_PORT_ID, BUZZER_PIN_ID, PIN_OUTPUT) ;
+	 GPIO_writePin(BUZZER_PORT_ID, BUZZER_PIN_ID, LOGIC_LOW);
+	 return ;
+}
+
+
+void Alarm_On (void){
+	GPIO_writePin(BUZZER_PORT_ID, BUZZER_PIN_ID, LOGIC_HIGH);
+}
+
+
+void Alarm_Off (void){
+	GPIO_writePin(BUZZER_PORT_ID, BUZZER_PIN_ID, LOGIC_LOW);
+
+}

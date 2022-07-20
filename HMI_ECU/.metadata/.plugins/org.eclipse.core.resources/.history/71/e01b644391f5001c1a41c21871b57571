@@ -1,0 +1,28 @@
+/*
+ * HMI_ECU.h
+ *
+ *  Created on: Jun 25, 2022
+ *      Author: khale
+ */
+
+#ifndef HMI_ECU_H_
+#define HMI_ECU_H_
+
+#include "std_types.h"
+
+#define MAX_NUMBER_OF_PASSWORD_CHARACTERS      6
+#define MAX_NUMBER_OF_ERRORS                   3
+
+uint8 key ;
+uint8 g_select ;
+void (*selFunc[5])(void) = {mainOptions,openDoor,writePw,checkPassWordEntering,checkPassWordReEntering,changePassWord,checkTheNewPassWord} ;
+
+void checkTheNewPassWord () ;
+void changePassWord (void) ;
+void checkPassWordEntering () ;
+void checkPassWordReEntering () ;
+void writePw () ;
+void openDoor (void) ;
+void mainOptions (void) ;
+
+#endif /* HMI_ECU_H_ */

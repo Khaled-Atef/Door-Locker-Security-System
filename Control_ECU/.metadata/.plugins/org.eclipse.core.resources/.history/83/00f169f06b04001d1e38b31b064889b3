@@ -1,0 +1,275 @@
+/*
+ * Control_ECU.c
+ *
+ *  Created on: Jun 18, 2022
+ *      Author: khaled Atef
+ */
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+#include "Control_ECU.h"
+#include "dc_motor.h"
+#include "buzzer.h"
+#include "timer.h"
+#include "uart.h"
+#include "twi.h"
+#include "external_eeprom.h"
+#include "std_types.h"
+
+
+
+#ifdef TIMER_0_NORMAL_MODE
+#define NUMBER_OF_OVERFLOWS_PER_FIFTEEN_SECONDS 458
+#elif TIMER_0_COMPARE_MODE
+#define NUMBER_OF_OVERFLOWS_PER_FIFTEEN_SECONDS 500
+#endif
+
+uint8 g_check  ;
+uint16 g_cycleCount = 0 ;
+uint8 key ;
+uint8 new[MAX_NUMBER_OF_PASSWORD_CHARACTERS] ;
+uint8 pw[MAX_NUMBER_OF_PASSWORD_CHARACTERS] ;
+uint8 flag = 0 ;
+uint8 g_buzzer = 0 ;
+
+
+/*
+ * Description : Function to configure the motor rotation direction
+ * if the door is openned it will rotate clock wise for 15 seconds
+ * if the door is closed it will rotate anti-clock wise for 15 seconds
+ */
+
+void motorSetup (void){
+
+	motor_Init() ;
+
+	if(flag == 0){
+		flag = 1 ;
+		motor_rotate(CW,90) ;
+
+
+#ifdef TIMER_0_NORMAL_MODE
+		Timer0_Init_Normal_Mode() ;
+#elif TIMER_0_COMPARE_MODE
+		Timer0_Init_CTC_Mode();
+#endif
+
+	}else if (flag == 1){
+		flag = 0 ;
+		motor_rotate(ACW,90) ;
+
+
+#ifdef TIMER_0_NORMAL_MODE
+		Timer0_Init_Normal_Mode() ;
+#elif TIMER_0_COMPARE_MODE
+		Timer0_Init_CTC_Mode();
+#endif
+
+	}
+
+	return ;
+}
+
+/*
+ * Description : Function that verify the new password by compare the
+ *  stored value in the array with the second entry
+ */
+
+
+void verifyNewPassWord (void){
+	uint8 count = 0 ;
+	uint8 data ;
+	uint8 write ;
+	g_check = CORRECT_PASSWORD ;
+	while(count < MAX_NUMBER_OF_PASSWORD_CHARACTERS){
+		while(UART_recieveByte() != ARE_YOU_READY){} ;
+		UART_sendByte(DONE) ;
+		/*
+		 * store each character of the password in a variable
+		 */
+		data = UART_recieveByte() ;
+		/*
+		 * compare each character of the password with the corresponding
+		 * value in the array
+		 */
+		if(data == new[count]){
+			count ++ ;
+			UART_sendByte(NEXT) ;// then it request the next character to repeat these steps again
+			continue ;
+		}else{
+			g_check = WRONG_PASSWORD ;
+		}
+		count ++ ;
+		UART_sendByte(NEXT) ;// then it request the next character to repeat these steps again
+	}
+	if(g_check == WRONG_PASSWORD){
+		UART_sendByte(NOT_MATCH) ;
+	}else{
+		count = 0 ;
+		while(count<MAX_NUMBER_OF_PASSWORD_CHARACTERS){
+			write = new[count] ;
+			_delay_ms(10) ;
+			EEPROM_writeByte(0x0311+count, write); /* Write each value of the new password in the external EEPROM */
+			_delay_ms(100) ;
+			count ++ ;
+
+		}
+
+		UART_sendByte(NO_ERROR) ;
+	}
+	return ;
+}
+
+/*
+ * Description : Function creates the new password by receiving
+ *               the pressed button on keypad and store it in a new
+ *               array .
+ *
+ */
+
+
+void createNewPassWord (void){
+
+	uint8 count = 0 ;
+	uint8 data ;
+	for(count = 0 ; count < MAX_NUMBER_OF_PASSWORD_CHARACTERS ; count++){
+		while(UART_recieveByte() != ARE_YOU_READY){} ; // wait until receiving this address
+		UART_sendByte(DONE) ;
+		data = UART_recieveByte() ;// it recieves each character and store it in a variable
+		new[count] = data ; // then it stores it in an array
+		UART_sendByte(NEXT) ; // then it request the next character to repeat these steps again
+
+	}
+	return ;
+}
+
+/*
+ * Description: This Function validate both the entered password value
+ * to open the door .
+ *
+ *first entry of password
+ *second entry of password
+ *
+ *it reads the stored pass word value in the EEPROM and compare it
+ *with typed password by the keypad .
+ *
+ *
+ *if the six values stored by the EEPROM match the six values typed
+ *on the LCD by the Keypad so it is a correct password and it will
+ *send no error HMI_ECU otherwise it will send error to the HMI_ECU
+ *because it is a wrong password .
+ */
+
+
+
+void testPassWordValue (void){
+	uint8 count = 0 ;
+	uint8 data ;
+	uint8 read ;
+	g_check = CORRECT_PASSWORD ;
+	for(uint8 i=0 ; i<MAX_NUMBER_OF_PASSWORD_CHARACTERS ; i++){
+		EEPROM_readByte(0x0311+i, &read) ; // reads each value from the EEPROM
+		_delay_ms(100) ;
+		pw[i] = read ; // store each value read from the EEPROM in an array
+	}
+	while(count < MAX_NUMBER_OF_PASSWORD_CHARACTERS){
+		while(UART_recieveByte() != ARE_YOU_READY){} ; // wait until receiving this address
+		UART_sendByte(DONE) ; // when it receives the ARE_YOU_READY it sends DONE
+		data = UART_recieveByte() ;// it receives each character and store it in a variable
+		if(data == pw[count]){ //
+			UART_sendByte(NEXT) ; // then it request the next character to repeat these steps again
+			count++ ;
+			continue ;
+		}else{
+			g_check = WRONG_PASSWORD ;
+
+		}
+		count++ ;
+		UART_sendByte(NEXT) ;// then it request the next character to repeat these steps again
+	}
+	if(g_check == WRONG_PASSWORD ){
+		UART_sendByte(NOT_MATCH) ;
+
+	}else{
+		UART_sendByte(NO_ERROR) ;
+
+	}
+
+	return ;
+}
+
+/*
+ * Description : Function to start the alarm and stop it if the password
+ * is not matching for maore than three times
+ */
+
+void Alarm (void){
+	Alarm_Init() ;
+	Alarm_On() ;
+#ifdef TIMER_0_NORMAL_MODE
+		Timer0_Init_Normal_Mode() ;
+#elif TIMER_0_COMPARE_MODE
+		Timer0_Init_CTC_Mode();
+#endif
+	return ;
+}
+
+void secondProcessing(void){
+	g_cycleCount ++ ;
+	if(g_cycleCount == NUMBER_OF_OVERFLOWS_PER_FIFTEEN_SECONDS){
+		g_cycleCount = 0 ;
+		Timer0_DeInit() ;
+		Alarm_Off() ;
+		//motor_DeInit(0) ;
+		UART_sendByte(DONE) ;
+	}
+}
+
+
+int main (void){
+
+	SREG |=(1<<7) ;
+	UART_init(9600);
+	Timer_setCallBack(secondProcessing) ;
+	TWI_init();
+	Alarm_Init() ;
+	Alarm_On() ;
+	sei() ;
+//	motor_Init() ;
+//	motor_rotate(CW) ;
+
+	while(1){
+
+		uint8 receive ;
+		receive = UART_recieveByte() ;
+
+		switch(receive){
+
+		case(MOTOR_CONFIGURATION) :
+	//  UART_sendByte(DONE) ;
+		motorSetup() ;
+		break ;
+
+		case(VALIDATION) : testPassWordValue() ;
+		break ;
+
+		case(CHANGE_PASSWORD) : createNewPassWord() ;
+		break ;
+
+		case(SAVE_PASSWORD) : verifyNewPassWord() ;
+		break ;
+
+		case(THIEVES) : Alarm() ;
+		break ;
+
+		}
+
+
+	}
+
+
+	return 0 ;
+
+
+
+}

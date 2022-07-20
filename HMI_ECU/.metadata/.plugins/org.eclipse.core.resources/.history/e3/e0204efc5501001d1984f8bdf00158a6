@@ -1,0 +1,298 @@
+/*
+ * HMI_ECU.c
+ *
+ *  Created on: Jun 20, 2022
+ *      Author: khaled Atef
+ */
+
+#include <avr/interrupt.h>
+#include <avr/io.h>
+#include <util/delay.h>
+#include "timer.h"
+#include "keypad.h"
+#include "lcd.h"
+#include "uart.h"
+#include "HMI_ECU.h"
+#include "std_types.h"
+
+#ifdef TIMER_0_NORMAL_MODE
+#define NUMBER_OF_OVERFLOWS_PER_FIFTEEN_SECONDS 458
+#elif TIMER_0_COMPARE_MODE
+#define NUMBER_OF_OVERFLOWS_PER_FIFTEEN_SECONDS 500
+#endif
+
+void OpenThenClose (void){
+	/*
+	 *
+	UART_sendByte(ARE_YOU_READY) ;
+	while(UART_recieveByte() != DONE ){} ;
+	 */
+	if(g_configure == 0){
+		g_configure = 1 ;
+		LCD_displayString("Door is OPenned ");
+#ifdef TIMER_0_NORMAL_MODE
+		Timer0_Init_Normal_Mode() ;
+#elif TIMER_0_COMPARE_MODE
+		Timer0_Init_CTC_Mode();
+#endif
+		while(UART_recieveByte() != DONE ){} ;
+		g_select = 6 ;
+
+	}else if(g_configure == 1){
+		g_configure = 2 ;
+		LCD_displayString("Door is Closed ");
+#ifdef TIMER_0_NORMAL_MODE
+		Timer0_Init_Normal_Mode() ;
+#elif TIMER_0_COMPARE_MODE
+		Timer0_Init_CTC_Mode();
+#endif
+		while(UART_recieveByte() != DONE ){} ;
+		g_select = 6 ;
+
+	}else if(g_configure == 2){
+		g_select = 0 ;
+	}
+
+
+	return ;
+
+}
+
+
+void secondProcessing(void){
+	g_cycleCount ++ ;
+	if(g_cycleCount == NUMBER_OF_OVERFLOWS_PER_FIFTEEN_SECONDS){
+		g_cycleCount = 0 ;
+		Timer0_DeInit() ;
+		LCD_clearScreen() ;
+	}
+}
+
+
+void validateTheNewPassWord (){
+
+	if(UART_recieveByte() == NOT_MATCH){
+		LCD_clearScreen() ;
+		LCD_displayString("---ERROR!!---");
+		_delay_ms(3000) ;
+		LCD_clearScreen() ;
+		LCD_displayString("REPEAT STEPS AGAIN");
+		g_select = 4 ;
+
+	}else{
+		LCD_clearScreen() ;
+		_delay_ms(15000) ;
+		LCD_displayString("PASS WORD SAVED!");
+		_delay_ms(15000) ;
+		LCD_clearScreen() ;
+		g_select = 0 ;
+	}
+	g_flag = 0 ;
+	enter = 0 ;
+
+	return ;
+
+}
+
+
+
+
+void changePassWord (void){
+	if(enter == 0 ){
+	    g_flag = 1 ;
+		enter ++ ;
+		LCD_clearScreen() ;
+		LCD_displayString("please enter new password : ") ;
+		LCD_moveCursor(1,0) ;
+//		writeNewPw() ;
+		g_select = 2 ;
+		return ;
+	}else if(enter == 1 ){
+	    g_flag = 2 ;
+		enter ++ ;
+		LCD_clearScreen() ;
+		LCD_displayString("please Re-enter new password : ");
+		LCD_moveCursor(1,0) ;
+//		writeNewPw() ;
+		g_select = 2 ;
+		return ;
+
+	}
+
+	return ;
+
+}
+
+
+void checkPassWord (){
+	if(UART_recieveByte() == NOT_MATCH){
+		error ++ ;
+		enter = 0 ;
+		LCD_clearScreen() ;
+		LCD_displayString("---ERROR!!---");
+		_delay_ms(3000) ;
+		if(error == MAX_NUMBER_OF_ERRORS){
+			error = 0 ;
+			LCD_clearScreen() ;
+			LCD_displayString("THEIVES!!! ");
+			_delay_ms(3000) ;
+			g_select = 1 ;
+			return ;
+		}
+		g_select = 1 ;
+		return ;
+
+	}else{
+
+		error = 0 ;
+		g_select = 1 ;
+		return ;
+
+	}
+}
+
+//if( ( g_key != '+' && g_key != '-' && g_key != '*' && g_key != '%' && g_key != '=') || (g_key>= 0 && g_key<= 9) )
+
+void writePw (){
+	uint8 count = 0 ;
+	while (count < MAX_NUMBER_OF_PASSWORD_CHARACTERS){
+		UART_sendByte(ARE_YOU_READY) ;
+		_delay_ms(3000);
+		/* if any switch pressed for more than 1500 ms it counts more than one press */
+		key = KEYPAD_getPressedKey() ;
+		while(UART_recieveByte() != DONE ){} ;
+		UART_sendByte(key) ;
+		LCD_displayCharacter('*');
+		_delay_ms(3000);
+		count++ ;
+		while(UART_recieveByte() != NEXT ){}
+	}
+	if(g_flag == 0){
+    	g_select = 3 ;
+	}else if(g_flag == 1){
+		g_select = 4 ;
+	}else{
+		g_select = 5 ;
+	}
+	return ;
+
+}
+
+
+
+void openDoor (){
+	if(enter == 0){
+		enter ++ ;
+		LCD_clearScreen() ;
+		LCD_displayString("please enter your password : ");
+		LCD_moveCursor(1,0) ;
+		g_select = 2 ;
+		//	writePw() ;
+		return ;
+
+	}else if(enter == 1){
+		enter ++ ;
+		LCD_clearScreen() ;
+		UART_sendByte(VALIDATION) ;
+		LCD_displayString("please Re-enter your password : ");
+		LCD_moveCursor(1,0) ;
+		g_select = 2 ;
+		//	writePw() ;
+
+	}else{
+		enter = 0 ;
+		LCD_clearScreen() ;
+		g_select = 6 ;
+		return ;
+	}
+	return ;
+	// checkPassWord() ;
+
+}
+
+
+void mainOptions (){
+
+	LCD_displayString("+ : Open Door") ;
+	LCD_moveCursor(1,0) ;
+	LCD_displayString("- : Change PassWord") ;
+	key = KEYPAD_getPressedKey() ;
+
+	if(key == '+'){
+		LCD_clearScreen() ;
+		g_select = 1 ;
+
+	}else{
+		LCD_clearScreen() ;
+		g_select = 4 ;
+	}
+
+	return ;
+}
+
+
+
+int main (void){
+	uint8 x ;
+	LCD_init() ;
+	/* Initialize the UART driver with Baud-rate = 9600 bits/sec */
+	UART_init(9600) ;
+	SREG |=(1<<7) ;
+	Timer_setCallBack(secondProcessing) ;
+	/*
+	 *
+	while(1){
+		x = g_select ;
+
+		switch(x){
+
+		case 0:
+			(*selFunc[g_select])() ;
+			break ;
+
+		case 1:
+			UART_sendByte(VALIDATION) ;
+			(*selFunc[g_select])() ;
+			break ;
+
+		case 2:
+			(*selFunc[g_select])() ;
+			break ;
+
+		case 3:
+			(*selFunc[g_select])() ;
+			break ;
+
+		case 4:
+			if (g_flag == 0){
+				UART_sendByte(CHANGE_PASSWORD) ;
+				(*selFunc[g_select])() ;
+
+			}else{
+
+				if (g_flag == 1){
+					UART_sendByte(SAVE_PASSWORD) ;
+					(*selFunc[g_select])() ;
+				}
+			}
+			break ;
+
+		case 5:
+			(*selFunc[g_select])() ;
+			break ;
+
+		case 6:
+			UART_sendByte(0x9B) ;
+			(*selFunc[g_select])() ;
+			break ;
+
+
+		}
+
+
+	}
+
+	 */
+	}
+
+

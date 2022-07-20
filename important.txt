@@ -1,0 +1,10 @@
+Greetings Tarek,
+
+the buzzer and the motor is not running on proteus since it gives grey color on the pins connected for both the motor and the buzzer , but the code is OK on eclipse with the timer0 .
+
+I have tried many days to fix the problem but I couldn't fix it .
+
+I am Sorry for the delay, because I tried to do my best with this project independently.
+
+Regards,
+Khaled 

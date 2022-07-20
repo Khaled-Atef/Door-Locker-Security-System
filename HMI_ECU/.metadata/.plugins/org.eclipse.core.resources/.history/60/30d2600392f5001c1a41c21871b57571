@@ -1,0 +1,204 @@
+/*
+ * HMI_ECU.c
+ *
+ *  Created on: Jun 20, 2022
+ *      Author: khaled Atef
+ */
+
+#include <avr/interrupt.h>
+#include <avr/io.h>
+#include "lcd.h"
+#include "keypad.h"
+#include "std_types.h"
+#include "HMI_ECU.h"
+#include <util/delay.h>
+#include "uart.h"
+
+
+#define DONE                 0x10
+#define ERROR                0x01
+
+void (*selFunc[7])(void) = {mainOptions,openDoor,writePw,checkPassWordEntering,checkPassWordReEntering,changePassWord,checkTheNewPassWord} ;
+
+
+
+
+
+void checkTheNewPassWord (){
+	uint8 error = 0;
+	if(1){
+		error ++ ;
+		LCD_clearScreen() ;
+		LCD_displayString("---ERROR!!---");
+		_delay_ms(3000) ;
+		LCD_clearScreen() ;
+		LCD_displayString("REPEAT STEPS AGAIN");
+		changePassWord() ;
+		return ;
+
+	}
+
+	return ;
+
+}
+
+
+
+
+
+
+
+void changePassWord (void){
+
+
+	LCD_displayStringRowColumn(0,0,"please enter new password : ") ;
+	LCD_moveCursor(1,0) ;
+	writePw() ;
+
+	LCD_clearScreen() ;
+	LCD_displayString("please re-enter new password : ");
+	LCD_moveCursor(1,0) ;
+	writePw() ;
+
+
+	checkTheNewPassWord();
+
+	LCD_clearScreen() ;
+	_delay_ms(15000) ;
+	LCD_displayString("Success Operation!");
+	_delay_ms(15000) ;
+	LCD_clearScreen() ;
+	return ;
+
+}
+
+
+
+
+
+
+void checkPassWordEntering (){
+	uint8 error = 0 ;
+	if(UART_receiveByte() == ERROR){
+		error ++ ;
+		LCD_clearScreen() ;
+		LCD_displayString("---ERROR!!---");
+		_delay_ms(3000) ;
+		if(error == MAX_NUMBER_OF_ERRORS){
+			error = 0 ;
+			LCD_clearScreen() ;
+			LCD_displayString("THEIVES!!! ");
+			_delay_ms(3000) ;
+			openDoor() ;
+			return ;
+		}
+		openDoor() ;
+		return ;
+
+	}
+
+	return ;
+}
+
+
+
+void checkPassWordReEntering (){
+	uint8 error = 0 ;
+	if(1){
+		error ++ ;
+		LCD_clearScreen() ;
+		LCD_displayString("--- ERROR!! --- ");
+		_delay_ms(3000) ;
+		if(error == MAX_NUMBER_OF_ERRORS){
+			error = 0 ;
+			LCD_clearScreen() ;
+			LCD_displayString("THEIVES!!! ");
+			_delay_ms(3000) ;
+			openDoor() ;
+			return ;
+		}
+		openDoor() ;
+		return ;
+
+	}
+
+	return ;
+}
+
+
+void writePw (){
+	uint8 count = 0 ;
+	while (count !=MAX_NUMBER_OF_PASSWORD_CHARACTERS){
+
+		_delay_ms(3000);
+		/* if any switch pressed for more than 1500 ms it counts more than one press */
+		key = KEYPAD_getPressedKey() ;
+		while(UART_receiveByte() != DONE ){}
+		UART_sendByte(key) ;
+		LCD_displayCharacter('*');
+		_delay_ms(3000);
+
+		count++ ;
+
+		}
+	return ;
+
+}
+
+
+void openDoor (void){
+	LCD_clearScreen() ;
+	LCD_displayString("please enter your password : ");
+	LCD_moveCursor(1,0) ;
+	writePw() ;
+	checkPassWordEntering() ;
+	LCD_clearScreen() ;
+	LCD_displayString("please Re-enter your password : ");
+	LCD_moveCursor(1,0) ;
+	writePw() ;
+	checkPassWordReEntering();
+
+	LCD_clearScreen() ;
+	LCD_displayString("Door is OPenned ");
+	_delay_ms(3000) ;
+	LCD_clearScreen() ;
+	return ;
+
+}
+
+
+void mainOptions (void){
+
+	LCD_displayString("+ : Open Door") ;
+	LCD_moveCursor(1,0) ;
+	LCD_displayString("- : Change PassWord") ;
+	key = KEYPAD_getPressedKey() ;
+
+	if(key == '+'){
+		openDoor() ;
+
+
+	}else{
+		LCD_clearScreen() ;
+		changePassWord () ;
+	}
+
+	g_select = 1 ;
+	return ;
+}
+
+
+
+int main (void){
+	UART_init(9600) ;
+	LCD_init() ;
+	/* Initialize the UART driver with Baud-rate = 9600 bits/sec */
+	SREG |=(1<<7) ;
+	g_select = 0 ;
+	while(1){
+
+		selFunc[g_select](void) ;
+	}
+
+
+}

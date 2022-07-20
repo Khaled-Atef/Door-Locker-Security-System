@@ -1,0 +1,41 @@
+/*
+ * buzzer.c
+ *
+ *  Created on: Jun 18, 2022
+ *      Author: khaled Atef
+ */
+
+#include "buzzer.h"
+#include "gpio.h"
+
+/*
+ * Description: Function to initiate the Alarm .
+ */
+
+
+void Alarm_Init (void){
+
+	 GPIO_setupPinDirection(BUZZER_PORT_ID, BUZZER_PIN_ID, PIN_OUTPUT) ;
+	 GPIO_writePin(BUZZER_PORT_ID, BUZZER_PIN_ID, LOGIC_LOW);
+	 return ;
+}
+
+/*
+ * Description: Function to Start the Alarm .
+ */
+
+
+void Alarm_On (void){
+	GPIO_writePin(BUZZER_PORT_ID, BUZZER_PIN_ID, LOGIC_HIGH);
+}
+
+
+/*
+ * Description: Function to shut off the Alarm .
+ */
+
+
+void Alarm_Off (void){
+	GPIO_writePin(BUZZER_PORT_ID, BUZZER_PIN_ID, LOGIC_LOW);
+
+}

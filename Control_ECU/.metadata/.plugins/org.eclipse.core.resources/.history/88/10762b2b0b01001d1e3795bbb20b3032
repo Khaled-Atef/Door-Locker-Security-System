@@ -1,0 +1,203 @@
+/*
+ * Control_ECU.c
+ *
+ *  Created on: Jun 18, 2022
+ *      Author: khaled Atef
+ */
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+#include "Control_ECU.h"
+#include "dc_motor.h"
+#include "timer.h"
+#include "uart.h"
+#include "twi.h"
+#include "external_eeprom.h"
+#include "std_types.h"
+
+
+
+#ifdef TIMER_0_NORMAL_MODE
+#define NUMBER_OF_OVERFLOWS_PER_FIFTEEN_SECONDS 458
+#elif TIMER_0_COMPARE_MODE
+#define NUMBER_OF_OVERFLOWS_PER_FIFTEEN_SECONDS 500
+#endif
+
+uint8 g_check  ;
+uint16 g_cycleCount = 0 ;
+uint8 key ;
+uint8 new[MAX_NUMBER_OF_PASSWORD_CHARACTERS] ;
+uint8 pw[MAX_NUMBER_OF_PASSWORD_CHARACTERS] ;
+uint8 flag = 0 ;
+
+
+
+void motorSetup (void){
+
+	motor_Init() ;
+
+	if(flag == 0){
+		flag = 1 ;
+		motor_rotate(CW) ;
+		/*
+		 *
+#ifdef TIMER_0_NORMAL_MODE
+		Timer0_Init_Normal_Mode() ;
+#elif TIMER_0_COMPARE_MODE
+		Timer0_Init_CTC_Mode();
+#endif
+		 */
+	}else if (flag == 1){
+		flag = 0 ;
+		motor_rotate(ACW) ;
+		/*
+		 *
+#ifdef TIMER_0_NORMAL_MODE
+		Timer0_Init_Normal_Mode() ;
+#elif TIMER_0_COMPARE_MODE
+		Timer0_Init_CTC_Mode();
+#endif
+		 */
+	}
+
+	return ;
+}
+
+void verifyNewPassWord (){
+	uint8 count = 0 ;
+	uint8 data ;
+	uint8 write ;
+	g_check = CORRECT_PASSWORD ;
+	while(count < MAX_NUMBER_OF_PASSWORD_CHARACTERS){
+		while(UART_recieveByte() != ARE_YOU_READY){} ;
+		UART_sendByte(DONE) ;
+		data = UART_recieveByte() ;
+		if(data == new[count]){
+			count ++ ;
+			UART_sendByte(NEXT) ;
+			continue ;
+		}else{
+			g_check = WRONG_PASSWORD ;
+		}
+		count ++ ;
+		UART_sendByte(NEXT) ;
+	}
+	if(g_check == WRONG_PASSWORD){
+		UART_sendByte(NOT_MATCH) ;
+	}else{
+		count = 0 ;
+		while(count<MAX_NUMBER_OF_PASSWORD_CHARACTERS){
+			write = new[count] ;
+			_delay_ms(10) ;
+			EEPROM_writeByte(0x0311+count, write); /* Write 0x0F in the external EEPROM */
+			_delay_ms(100) ;
+			count ++ ;
+
+		}
+
+		UART_sendByte(NO_ERROR) ;
+	//	motor_Init() ;
+	//	motor_rotate(CW) ;
+	}
+	return ;
+}
+
+
+
+
+void createNewPassWord (){
+
+	uint8 count = 0 ;
+	uint8 data ;
+	for(count = 0 ; count < MAX_NUMBER_OF_PASSWORD_CHARACTERS ; count++){
+		while(UART_recieveByte() != ARE_YOU_READY){} ;
+		UART_sendByte(DONE) ;
+		data = UART_recieveByte() ;
+		new[count] = data ;
+		UART_sendByte(NEXT) ;
+
+	}
+	return ;
+}
+
+
+//This Function validate both the default password value and the new password value
+
+void testPassWordValue (){
+	uint8 count = 0 ;
+	uint8 data ;
+	uint8 read ;
+	g_check = CORRECT_PASSWORD ;
+	for(uint8 i=0 ; i<MAX_NUMBER_OF_PASSWORD_CHARACTERS ; i++){
+		EEPROM_readByte(0x0311+i, &read) ;
+		_delay_ms(100) ;
+		pw[i] = read ;
+	}
+	while(count < MAX_NUMBER_OF_PASSWORD_CHARACTERS){
+		while(UART_recieveByte() != ARE_YOU_READY){} ;
+		UART_sendByte(DONE) ;
+		data = UART_recieveByte() ;
+		if(data == pw[count]){
+			UART_sendByte(NEXT) ;
+			count++ ;
+			continue ;
+		}else{
+			g_check = WRONG_PASSWORD ;
+
+		}
+		count++ ;
+		UART_sendByte(NEXT) ;
+	}
+	if(g_check == WRONG_PASSWORD ){
+		UART_sendByte(NOT_MATCH) ;
+	}else{
+		UART_sendByte(NO_ERROR) ;
+	}
+	return ;
+}
+
+
+
+
+void secondProcessing(void){
+	g_cycleCount ++ ;
+	if(g_cycleCount == NUMBER_OF_OVERFLOWS_PER_FIFTEEN_SECONDS){
+		g_cycleCount = 0 ;
+		Timer0_DeInit() ;
+		motor_DeInit() ;
+		UART_sendByte(DONE) ;
+	}
+}
+
+
+int main (void){
+
+	SREG |=(1<<7) ;
+	UART_init(9600);
+	Timer_setCallBack(secondProcessing) ;
+	TWI_init();
+
+	while(1){
+		uint8 receive ;
+		receive = UART_recieveByte() ;
+		switch(receive){
+		case MOTOR_CONFIGURATION : motorSetup() ;
+		break ;
+
+		case VALIDATION : testPassWordValue() ;
+		break ;
+
+		case CHANGE_PASSWORD : createNewPassWord() ;
+		break ;
+
+
+		case SAVE_PASSWORD : verifyNewPassWord() ;
+		break ;
+
+		}
+
+
+	}
+
+
+}
